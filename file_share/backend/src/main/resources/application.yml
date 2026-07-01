@@ -1,0 +1,65 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/fileshare}
+    username: ${DB_USERNAME:fileshare}
+    password: ${DB_PASSWORD:fileshare}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_URL:http://localhost:8180}/realms/${KEYCLOAK_REALM:fileshare}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:${KEYCLOAK_URL:http://localhost:8180}/realms/${KEYCLOAK_REALM:fileshare}/protocol/openid-connect/certs}
+
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  bucket: ${MINIO_BUCKET:files}
+
+file:
+  max-size-bytes: 104857600  # 100 MB
+  forbidden-extensions:
+    - exe
+    - bat
+    - sh
+    - cmd
+    - ps1
+    - vbs
+    - jar
+    - com
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    oauth:
+      client-id: fileshare-client
+      realm: fileshare
+      use-pkce-with-authorization-code-grant: true
+
+logging:
+  level:
+    com.fileshare: DEBUG
+    org.springframework.security: INFO
