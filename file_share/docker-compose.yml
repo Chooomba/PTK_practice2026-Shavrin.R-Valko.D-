@@ -1,0 +1,135 @@
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: fileshare-postgres
+    environment:
+      POSTGRES_DB: fileshare
+      POSTGRES_USER: fileshare
+      POSTGRES_PASSWORD: fileshare
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fileshare -d fileshare"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fileshare-net
+
+  # ── MinIO ────────────────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: fileshare-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fileshare-net
+
+  # ── MinIO Init (создаёт bucket) ──────────────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: fileshare-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/files &&
+        echo 'Bucket created successfully'
+      "
+    networks:
+      - fileshare-net
+
+  # ── Keycloak ─────────────────────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: fileshare-keycloak
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/fileshare
+      KC_DB_USERNAME: fileshare
+      KC_DB_PASSWORD: fileshare
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./keycloak/fileshare-realm.json:/opt/keycloak/data/import/fileshare-realm.json:ro
+    ports:
+      - "8180:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fileshare-net
+
+  # ── Backend ──────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fileshare-backend
+    ports:
+      - "8080:8080"
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/fileshare
+      DB_USERNAME: fileshare
+      DB_PASSWORD: fileshare
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: files
+      KEYCLOAK_URL: http://localhost:8180
+      KEYCLOAK_REALM: fileshare
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8180/realms/fileshare
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/fileshare/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - fileshare-net
+
+  # ── Frontend ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_KEYCLOAK_URL: http://localhost:8180
+        VITE_KEYCLOAK_REALM: fileshare
+        VITE_KEYCLOAK_CLIENT_ID: fileshare-client
+    container_name: fileshare-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - fileshare-net
+
+volumes:
+  postgres_data:
+  minio_data:
+
+networks:
+  fileshare-net:
+    driver: bridge

@@ -1,0 +1,31 @@
+spring:
+  datasource:
+    url: ${TEST_DB_URL:jdbc:tc:postgresql:15:///fileshare_test}
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8180/realms/fileshare
+
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket: files-test
+
+file:
+  max-size-bytes: 10485760  # 10 MB для тестов
+  forbidden-extensions:
+    - exe
+    - bat
+    - sh
